@@ -5,85 +5,245 @@
   <title>AR Bridge</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body { margin: 0; overflow: hidden; }
-    button {
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #2b2b2b; /* dark grey */
+    }
+
+    h1 {
       position: absolute;
-      bottom: 20px;
+      top: 10px;
       left: 50%;
       transform: translateX(-50%);
-      padding: 12px 20px;
-      font-size: 16px;
+      color: white;
+      z-index: 2;
     }
   </style>
 </head>
 <body>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/controls/OrbitControls.js';
+  import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
 
-<button id="ar-button">Enter AR</button>
+  let scene, camera, renderer, controls;
 
-<script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js';
-import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/webxr/ARButton.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158/examples/jsm/loaders/GLTFLoader.js';
+  init();
 
-let scene, camera, renderer;
-let controller;
-let bridge;
+  function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb); // light sky blue
 
-init();
+    camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,     // ✅ WAS 0.001
+      2000     // ✅ WAS 10000
+    );
 
-function init() {
-  scene = new THREE.Scene();
+    camera.position.set(0, 2, 5);
 
-  camera = new THREE.PerspectiveCamera(
-    70,
-    window.innerWidth / window.innerHeight,
-    0.01,
-    20
-  );
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.xr.enabled = true;
-  document.body.appendChild(renderer.domElement);
 
-  document.body.appendChild(
-    ARButton.createButton(renderer, {
-      requiredFeatures: ['hit-test']
-    })
-  );
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
 
-  // Light
-  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-  scene.add(light);
+    // --- SUN & SKY LIGHTING ---
+    // Soft sky ambient light (blue-ish)
+    scene.add(new THREE.AmbientLight(0xbfdfff, 0.6));
 
-  // Controller for tap placement
-  controller = renderer.xr.getController(0);
-  controller.addEventListener('select', placeBridge);
-  scene.add(controller);
+    // Sun light
+    const sunLight = new THREE.DirectionalLight(0xfff4dd, 1.6);
+    sunLight.position.set(50, 100, 30);
+    sunLight.castShadow = true;
 
-  // Load bridge model
-  const loader = new GLTFLoader();
-  loader.load('Bridge.glb', (gltf) => {
-    bridge = gltf.scene;
-    bridge.scale.set(0.5, 0.5, 0.5);
-    bridge.visible = false;
-    scene.add(bridge);
-  });
+    // Better shadows
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 300;
 
-  renderer.setAnimationLoop(render);
-}
+    scene.add(sunLight);
 
-function placeBridge() {
-  if (!bridge) return;
+    // Grass material
+    const groundMaterial = new THREE.MeshStandardMaterial({
+      color: 0x3b7a3b,
+      roughness: 0.9
+    });
 
-  bridge.visible = true;
-  bridge.position.set(0, 0, -1); // 1 meter in front of camera
-}
+    // River size
+    const riverWidth = 10;
+    const terrainDepth = 1000; // total z-length
+    const terrainWidth = 500;  // width on each side
 
-function render() {
-  renderer.render(scene, camera);
-}
-</script>
+    // FRONT GRASS (before river)
+    const frontGround = new THREE.Mesh(
+      new THREE.PlaneGeometry(terrainWidth, (terrainDepth - riverWidth)/2),
+      groundMaterial
+    );
+    frontGround.rotation.x = -Math.PI / 2;
+    frontGround.position.set(0, 0, -(riverWidth/2 + (terrainDepth - riverWidth)/4));
+    scene.add(frontGround);
+
+    // BACK GRASS (after river)
+    const backGround = new THREE.Mesh(
+      new THREE.PlaneGeometry(terrainWidth, (terrainDepth - riverWidth)/2),
+      groundMaterial
+    );
+    backGround.rotation.x = -Math.PI / 2;
+    backGround.position.set(0, 0, riverWidth/2 + (terrainDepth - riverWidth)/4);
+    scene.add(backGround);
+
+
+    // --- WATER (RIVER) ---
+    const waterGeometry = new THREE.PlaneGeometry(terrainWidth, riverWidth);
+    const waterMaterial = new THREE.MeshStandardMaterial({
+      color: 0x3a6ea5,
+      roughness: 0.15,
+      metalness: 0.6,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide
+    });
+
+    const water = new THREE.Mesh(waterGeometry, waterMaterial);
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = 0;       // flush with grass
+    water.position.z = 0;       // center along z-axis
+    scene.add(water);
+
+
+    
+    // --- ROAD CONFIG ---
+    const roadWidth = 2;
+    const roadLength = 200;
+    const roadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2b2b2b,
+      roughness: 0.95,
+      metalness: 0.0
+    });
+
+    // FRONT ROAD (before bridge/river)
+    const frontRoad = new THREE.Mesh(
+      new THREE.PlaneGeometry(roadWidth, (terrainDepth - riverWidth)/2),
+      roadMaterial
+    );
+    frontRoad.rotation.x = -Math.PI / 2;
+    frontRoad.position.set(0, 0.01, -(riverWidth/2 + (terrainDepth - riverWidth)/4));
+    frontRoad.receiveShadow = true;
+    scene.add(frontRoad);
+
+    // BACK ROAD (after bridge/river)
+    const backRoad = new THREE.Mesh(
+      new THREE.PlaneGeometry(roadWidth, (terrainDepth - riverWidth)/2),
+      roadMaterial
+    );
+    backRoad.rotation.x = -Math.PI / 2;
+    backRoad.position.set(0, 0.01, riverWidth/2 + (terrainDepth - riverWidth)/4);
+    backRoad.receiveShadow = true;
+    scene.add(backRoad);
+
+
+    // Load model
+    const loader = new GLTFLoader();
+    loader.load(
+      'Bridge.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        scene.add(model);
+
+        model.traverse(obj => {
+          if (obj.isMesh) {
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+          }
+        });
+
+
+        // --- FIX ORIENTATION ---
+        // Most bridges are Z-up → rotate to Y-up
+        model.rotation.x = -Math.PI / 2;
+
+        // --- COMPUTE BOX AFTER ROTATION ---
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        // --- SCALE ---
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 20 / maxDim; // bridges are long
+        model.scale.setScalar(scale);
+
+        // --- RECOMPUTE BOX AFTER SCALE ---
+        const scaledBox = new THREE.Box3().setFromObject(model);
+        const scaledSize = scaledBox.getSize(new THREE.Vector3());
+        const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+
+        // --- POSITION ON GRID (BOTTOM TOUCHES Y=0) ---
+        model.position.set(
+          -scaledCenter.x,
+          -scaledBox.min.y,
+          -scaledCenter.z
+        );
+
+        // --- SIDE VIEW CAMERA ---
+
+        const sideDistance = scaledSize.x * 8.5;   // how close to the side
+        const height = scaledSize.y * 0.6;         // eye-level height
+        const depth = scaledSize.z * 0.12;          // slight angle
+
+        camera.position.set(
+          sideDistance,   // X → side of bridge
+          height,         // Y → up
+          depth           // Z → slight forward angle
+        );
+
+        // Look toward the center of the bridge
+        controls.target.set(
+          0,
+          scaledSize.y * 0.4,
+          0
+        );
+
+        controls.update();
+
+
+        console.log('✅ Bridge positioned correctly');
+      }
+
+    );
+
+    window.addEventListener('resize', onResize);
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+  </script>
 
 </body>
 </html>
