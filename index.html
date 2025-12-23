@@ -63,7 +63,7 @@ function init() {
 
   // Load bridge model
   const loader = new GLTFLoader();
-  loader.load('bridge.glb', (gltf) => {
+  loader.load('Bridge.glb', (gltf) => {
     bridge = gltf.scene;
     bridge.scale.set(0.5, 0.5, 0.5);
     bridge.visible = false;
